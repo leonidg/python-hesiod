@@ -4,6 +4,7 @@
 import DNS
 import os
 import re
+import threading
 
 
 class HesiodContext(object):
@@ -12,6 +13,8 @@ class HesiodContext(object):
     classes = [DNS.Class.IN, DNS.Class.HS]
     def __str__(self):
         return "HesiodContext(%s%s, %s)" % (self.lhs, self.rhs, self.classes)
+
+__lookup_lock = threading.Lock()
 
 
 def read_config_file(context, filename):
@@ -72,6 +75,7 @@ def hesiod_to_bind(context, name, type):
 def hesiod_resolve(context, name, type):
     return get_txt_records(context, hesiod_to_bind(context, name, type))
 
+
 def get_txt_records(context, name):
     nameservers = []
     with open("/etc/resolv.conf", 'r') as f:
@@ -92,3 +96,14 @@ def get_txt_records(context, name):
     return result.answers[0]['data']
 
 
+def bind(hes_name, hes_type):
+    return hesiod_to_bind(HesiodContext(), hes_name, hes_type)
+
+
+def resolve(hes_name, hes_type):
+    try:
+        __lookup_lock.acquire()
+        result = hesiod_resolve(HesiodContext(), hes_name, hes_type)
+    finally:
+        __lookup_lock.release()
+    return result
