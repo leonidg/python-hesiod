@@ -1,11 +1,17 @@
 # A pure Python implementation of https://github.com/ebroder/python-hesiod/blob/master/_hesiod.pyx
-# Requires PyDNS (http://pydns.sourceforge.net/)
+# Code strongly based on https://github.com/ebroder/libhesiod/blob/master/hesiod.c
 
+# Requires PyDNS (http://pydns.sourceforge.net/) PyDNS is actually
+# pretty crappy and among other things doesn't actually support using
+# a DNS class other than C_IN.  C_IN worked for my purposes
+# (specifically to get the /mit-automounter to work) so I'm going to
+# go with it. This does mean that everything in this code implying
+# that you can use another kind of DNS class is a lie.
 import DNS
+
 import os
 import re
 import threading
-
 
 class HesiodContext(object):
     lhs = ".ns"
@@ -18,6 +24,10 @@ __lookup_lock = threading.Lock()
 
 
 def read_config_file(context, filename):
+    """
+    Parse configuration file (e.g. /etc/hesiod.conf) and fill out the
+    context based on the results.
+    """
     with open(filename, 'r') as f:
         for line in f.readlines():
             line = line.strip()
@@ -42,6 +52,10 @@ def read_config_file(context, filename):
 
 
 def hesiod_init(context):
+    """
+    Initialize the context with informatinon from the configuration
+    file and environment variables.
+    """
     configname = os.environ.get("HESIOD_CONFIG", "/etc/hesiod.conf")
     read_config_file(context, configname)
     context.rhs = os.environ.get("HES_DOMAIN", context.rhs)
@@ -52,10 +66,17 @@ def hesiod_init(context):
 
 
 def hesiod_end(context):
+    """
+    Free memory from the context. This exists for compatibility, as
+    the Python GC should deal with it for us.
+    """
     del context
 
 
 def hesiod_to_bind(context, name, type):
+    """
+    Return the DNS name that will be used for the lookup
+    """
     if '@' in name:
         for i in range(len(name)):
             if name[i] == '@':
@@ -72,12 +93,24 @@ def hesiod_to_bind(context, name, type):
     return name
 
 
-def hesiod_resolve(context, name, type):
-    return get_txt_records(context, hesiod_to_bind(context, name, type))
+def hesiod_resolve(context, name, type, nameservers=[]):
+    """
+    Perform the lookup of the given name and type
+    """
+    return get_txt_records(context, hesiod_to_bind(context, name, type), nameservers)
 
 
-def get_txt_records(context, name):
-    nameservers = []
+def get_txt_records(context, name, nameservers=[]):
+    """
+    Actually performs the lookup. This is a lower level function as it
+    expects the correct bound DNS name, rather than the user-friendly
+    Hesiod "name" and "type" values.
+
+    The DNS module doesn't deal with figuring out nameservers for some
+    reason, so if the nameserver is not provided as an argument, as a
+    simple hack this function just parses /etc/resolv.conf itself and
+    tries to use one nameserver at a time.
+    """
     with open("/etc/resolv.conf", 'r') as f:
         for line in f.readlines():
             line.strip()
@@ -97,13 +130,22 @@ def get_txt_records(context, name):
 
 
 def bind(hes_name, hes_type):
+    """
+    Convert the provided arguments into a DNS name.
+    
+    The DNS name derived from the name and type provided is used to
+    actually execute the Hesiod lookup.
+    """
     return hesiod_to_bind(HesiodContext(), hes_name, hes_type)
 
 
-def resolve(hes_name, hes_type):
+def resolve(hes_name, hes_type, nameservers=[]):
+    """
+    Return a list of records matching the given name and type.
+    """
     try:
         __lookup_lock.acquire()
-        result = hesiod_resolve(HesiodContext(), hes_name, hes_type)
+        result = hesiod_resolve(HesiodContext(), hes_name, hes_type, nameservers)
     finally:
         __lookup_lock.release()
     return result
