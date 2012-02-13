@@ -113,7 +113,7 @@ def get_txt_records(context, name, nameservers=[]):
     """
     with open("/etc/resolv.conf", 'r') as f:
         for line in f.readlines():
-            line.strip()
+            line = line.strip()
             if line.startswith('nameserver'):
                 _, nameserver = line.split(' ')
                 nameservers.append(nameserver)
